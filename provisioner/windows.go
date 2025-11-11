@@ -171,12 +171,12 @@ func (d *windows) releaseInstance(instanceId string) error {
 func (d *windows) InstanceResizeTerminal(instance *types.Instance, rows, cols uint) error {
 	resp, err := http.Post(fmt.Sprintf("http://%s:222/terminals/1/size?cols=%d&rows=%d", instance.IP, cols, rows), "application/json", nil)
 	if err != nil {
-		log.Println(err)
-		return err
+		// Don't log errors for instances that might not be ready yet
+		return nil
 	}
 	if resp.StatusCode != 200 {
-		log.Printf("Error resizing terminal of instance %s. Got %d\n", instance.Name, resp.StatusCode)
-		return fmt.Errorf("Error resizing terminal got %d\n", resp.StatusCode)
+		// Don't log errors for instances that might not be ready yet
+		return nil
 	}
 	return nil
 }

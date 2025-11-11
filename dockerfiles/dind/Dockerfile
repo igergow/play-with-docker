@@ -12,20 +12,26 @@ ENV PATH $IPTABLES_LEGACY:$GOPATH:$PATH
 ENV DOCKER_TLS_CERTDIR=""
 ENV DOCKER_CLI_EXPERIMENTAL=enabled
 
-# Install compose
+# Install compose (multi-arch support)
 ENV COMPOSE_VERSION=2.18.1
-RUN mkdir -p /usr/lib/docker/cli-plugins \
-    && curl -LsS https://github.com/docker/compose/releases/download/v$COMPOSE_VERSION/docker-compose-linux-x86_64 -o /usr/lib/docker/cli-plugins/docker-compose \
-    && chmod +x /usr/lib/docker/cli-plugins/docker-compose
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="x86_64"; \
+    elif [ "$ARCH" = "aarch64" ]; then ARCH="aarch64"; fi && \
+    mkdir -p /usr/lib/docker/cli-plugins && \
+    curl -LsS https://github.com/docker/compose/releases/download/v$COMPOSE_VERSION/docker-compose-linux-$ARCH -o /usr/lib/docker/cli-plugins/docker-compose && \
+    chmod +x /usr/lib/docker/cli-plugins/docker-compose
 
 
-# Install scout
+# Install scout (multi-arch support)
 ENV SCOUT_VERSION=1.0.9
-RUN wget -O /tmp/scout.tar.gz https://github.com/docker/scout-cli/releases/download/v1.0.9/docker-scout_1.0.9_linux_amd64.tar.gz \
-    && tar -xvf /tmp/scout.tar.gz docker-scout -C /usr/local/bin \
-    && chmod +x /usr/local/bin/docker-scout \
-    && ln -s $(which docker-scout) /usr/lib/docker/cli-plugins \
-    && rm /tmp/scout.tar.gz
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH="amd64"; \
+    elif [ "$ARCH" = "aarch64" ]; then ARCH="arm64"; fi && \
+    wget -O /tmp/scout.tar.gz https://github.com/docker/scout-cli/releases/download/v$SCOUT_VERSION/docker-scout_${SCOUT_VERSION}_linux_$ARCH.tar.gz && \
+    tar -xvf /tmp/scout.tar.gz docker-scout -C /usr/local/bin && \
+    chmod +x /usr/local/bin/docker-scout && \
+    ln -s $(which docker-scout) /usr/lib/docker/cli-plugins && \
+    rm /tmp/scout.tar.gz
 
 
 

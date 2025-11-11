@@ -29,8 +29,10 @@ sudo modprobe xt_ipvs
 # Ensure the Docker daemon is running in swarm mode
 docker swarm init
 
-# Get the latest franela/dind image
-docker pull franela/dind
+# Build the dind image (supports both AMD64 and ARM64)
+cd dockerfiles/dind
+docker build -t franela/dind:arm64 .
+cd ../..
 
 # Optional (with go1.14): pre-fetch module requirements into vendor
 # so that no network requests are required within the containers.
