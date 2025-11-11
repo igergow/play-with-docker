@@ -1,0 +1,75 @@
+# ARM64-compatible Kubernetes playground image
+# Based on Ubuntu instead of CentOS for better ARM64 support
+FROM ubuntu:22.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    git \
+    bash-completion \
+    vim \
+    jq \
+    systemctl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker
+RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce docker-ce-cli containerd.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Kubernetes components (multi-arch)
+RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.31/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.31/deb/ /" | tee /etc/apt/sources.list.d/kubernetes.list \
+    && apt-get update \
+    && apt-get install -y kubelet kubeadm kubectl \
+    && apt-mark hold kubelet kubeadm kubectl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install docker-compose (multi-arch)
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then ARCH="x86_64"; \
+    elif [ "$ARCH" = "arm64" ]; then ARCH="aarch64"; fi && \
+    COMPOSE_VERSION="2.18.1" && \
+    curl -L "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-${ARCH}" -o /usr/local/bin/docker-compose && \
+    chmod +x /usr/local/bin/docker-compose
+
+# Setup kubectl bash completion
+RUN echo 'source <(kubectl completion bash)' >> /root/.bashrc \
+    && kubectl completion bash > /etc/bash_completion.d/kubectl
+
+# Create kube config directory
+RUN mkdir -p /root/.kube
+
+# Copy configuration files
+COPY ./daemon.json /etc/docker/daemon.json
+COPY ./motd /etc/motd
+RUN echo "# Custom bashrc for PWD K8s" > /root/.bashrc
+
+# Create necessary directories
+RUN mkdir -p /var/lib/kubelet \
+    && mkdir -p /etc/kubernetes/manifests
+
+WORKDIR /root
+
+# Disable swap (required for kubelet)
+RUN swapoff -a || true
+
+# Configure systemd
+RUN systemctl enable docker || true
+RUN systemctl enable kubelet || true
+
+# Start script
+CMD mount --make-shared / && \
+    dockerd > /var/log/docker.log 2>&1 & \
+    sleep 5 && \
+    while true; do script -q -c "/bin/bash -l" /dev/null; done
+

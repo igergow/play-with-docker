@@ -54,6 +54,8 @@ type SessionSetupInstanceConf struct {
 	Hostname       string     `json:"hostname"`
 	IsSwarmManager bool       `json:"is_swarm_manager"`
 	IsSwarmWorker  bool       `json:"is_swarm_worker"`
+	IsK8sMaster    bool       `json:"is_k8s_master"`
+	IsK8sWorker    bool       `json:"is_k8s_worker"`
 	Type           string     `json:"type"`
 	Run            [][]string `json:"run"`
 	Tls            bool       `json:"tls"`
@@ -317,6 +319,14 @@ func (p *pwd) SessionSetup(session *types.Session, sconf SessionSetupConf) error
 						return err
 					}
 				}
+			}
+
+			// Kubernetes cluster setup (similar to Swarm)
+			if conf.IsK8sMaster || conf.IsK8sWorker {
+				// TODO: Implement Kubernetes cluster automation
+				// This would require executing kubeadm init/join commands
+				// via p.InstanceExec() and parsing the join token
+				log.Printf("Kubernetes auto-join not yet implemented for instance %s. Please use manual setup.\n", i.Name)
 			}
 
 			for _, cmd := range conf.Run {
