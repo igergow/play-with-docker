@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -78,6 +79,11 @@ func Register(extend HandlerExtender) {
 		return false
 	}), gh.AllowedOrigins([]string{}))
 
+	// Serve favicon from React build
+	r.HandleFunc("/favicon.ico", func(rw http.ResponseWriter, req *http.Request) {
+		serveAsset(rw, req, "react/favicon.ico")
+	})
+
 	// Specific routes
 	r.HandleFunc("/ping", Ping).Methods("GET")
 	corsRouter.HandleFunc("/instances/images", GetInstanceImages).Methods("GET")
@@ -92,8 +98,16 @@ func Register(extend HandlerExtender) {
 	corsRouter.HandleFunc("/sessions/{sessionId}/instances/{instanceName}/fstree", fsTree).Methods("GET")
 	corsRouter.HandleFunc("/sessions/{sessionId}/instances/{instanceName}/file", file).Methods("GET")
 
-	r.HandleFunc("/sessions/{sessionId}/instances/{instanceName}/editor", func(rw http.ResponseWriter, r *http.Request) {
-		serveAsset(rw, r, "editor.html")
+	// Editor route - serve React static file (catch-all route)
+	r.HandleFunc("/sessions/{sessionId}/instances/{instanceName}/editor", func(rw http.ResponseWriter, req *http.Request) {
+		// Try React editor page first (catch-all generates placeholder path)
+		reactEditor, err := fs.ReadFile(staticFiles, filepath.Join("react", "sessions", "placeholder", "instances", "placeholder", "editor", "index.html"))
+		if err != nil {
+			// Fallback to old editor.html
+			serveAsset(rw, req, "editor.html")
+			return
+		}
+		rw.Write(reactEditor)
 	})
 
 	r.HandleFunc("/ooc", func(rw http.ResponseWriter, r *http.Request) {
@@ -103,6 +117,7 @@ func Register(extend HandlerExtender) {
 		serveAsset(rw, r, "503.html")
 	}).Methods("GET")
 	r.HandleFunc("/p/{sessionId}", Home).Methods("GET")
+	
 	r.PathPrefix("/assets").HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		serveAsset(rw, r, r.URL.Path[1:])
 	})
@@ -113,10 +128,20 @@ func Register(extend HandlerExtender) {
 	corsRouter.HandleFunc("/sessions/{sessionId}/ws/", WSH)
 	r.Handle("/metrics", promhttp.Handler())
 
-	// Generic routes
-	r.HandleFunc("/", Landing).Methods("GET")
+	// Landing page - try React first, then fallback
+	r.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
+		// Try React index.html
+		reactIndex, err := fs.ReadFile(staticFiles, "react/index.html")
+		if err != nil {
+			// Fallback to old landing page
+			Landing(rw, req)
+			return
+		}
+		rw.Write(reactIndex)
+	}).Methods("GET")
 
 	corsRouter.HandleFunc("/users/me", LoggedInUser).Methods("GET")
+	corsRouter.HandleFunc("/users/nickname", NicknameLogin).Methods("POST")
 	r.HandleFunc("/users/{userId:.{3,}}", GetUser).Methods("GET")
 	r.HandleFunc("/oauth/providers", ListProviders).Methods("GET")
 	r.HandleFunc("/oauth/providers/{provider}/login", Login).Methods("GET")
@@ -132,6 +157,14 @@ func Register(extend HandlerExtender) {
 	}
 
 	n := negroni.Classic()
+
+	// Serve React static files (_next directory) - MUST be before catch-all route
+	// This handles /_next/static/chunks/..., /_next/static/media/..., etc.
+	r.PathPrefix("/_next").HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		// Path like /_next/static/chunks/... -> react/_next/static/chunks/...
+		path := strings.TrimPrefix(req.URL.Path, "/")
+		serveAsset(rw, req, filepath.Join("react", path))
+	})
 
 	r.PathPrefix("/").Handler(negroni.New(negroni.Wrap(corsHandler(corsRouter))))
 	n.UseHandler(r)
@@ -283,5 +316,24 @@ func initOauthProviders(p *types.Playground) {
 		}
 
 		config.Providers[p.Id]["docker"] = conf
+	}
+	if p.AuthentikClientID != "" && p.AuthentikClientSecret != "" && p.AuthentikHost != "" {
+		endpoint := p.AuthentikHost
+		// Remove trailing slash if present
+		if strings.HasSuffix(endpoint, "/") {
+			endpoint = endpoint[:len(endpoint)-1]
+		}
+
+		conf := &oauth2.Config{
+			ClientID:     p.AuthentikClientID,
+			ClientSecret: p.AuthentikClientSecret,
+			Scopes:       []string{"openid", "profile", "email"},
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  fmt.Sprintf("%s/application/o/authorize/", endpoint),
+				TokenURL: fmt.Sprintf("%s/application/o/token/", endpoint),
+			},
+		}
+
+		config.Providers[p.Id]["authentik"] = conf
 	}
 }

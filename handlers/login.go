@@ -199,6 +199,54 @@ func LoginCallback(rw http.ResponseWriter, req *http.Request) {
 		// Since DockerID doesn't return a user avatar, we try with twitter through avatars.io
 		// Worst case we get a generic avatar
 		user.Avatar = fmt.Sprintf("https://avatars.io/twitter/%s", user.Name)
+	} else if providerName == "authentik" {
+		ts := oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: tok.AccessToken},
+		)
+		tc := oauth2.NewClient(ctx, ts)
+
+		endpoint := playground.AuthentikHost
+		if endpoint == "" {
+			log.Printf("Authentik host not configured for playground %s\n", playground.Id)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Remove trailing slash if present
+		if strings.HasSuffix(endpoint, "/") {
+			endpoint = endpoint[:len(endpoint)-1]
+		}
+
+		resp, err := tc.Get(fmt.Sprintf("%s/application/o/userinfo/", endpoint))
+		if err != nil {
+			log.Printf("Could not get user from authentik. Got: %v\n", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		defer resp.Body.Close()
+
+		userInfo := map[string]interface{}{}
+		if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+			log.Printf("Could not decode user info. Got: %v\n", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Parse standard OIDC claims
+		if sub, ok := userInfo["sub"].(string); ok {
+			user.ProviderUserId = sub
+		}
+		if name, ok := userInfo["name"].(string); ok {
+			user.Name = name
+		} else if preferredUsername, ok := userInfo["preferred_username"].(string); ok {
+			user.Name = preferredUsername
+		}
+		if email, ok := userInfo["email"].(string); ok {
+			user.Email = email
+		}
+		if picture, ok := userInfo["picture"].(string); ok {
+			user.Avatar = picture
+		}
 	}
 
 	user, err = core.UserLogin(loginRequest, user)

@@ -34,17 +34,23 @@ func Home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	index, err := fs.ReadFile(staticFiles, filepath.Join(playground.AssetsDir, "/index.html"))
+	// Try to serve React static file first (catch-all route generates placeholder/index.html)
+	reactIndex, err := fs.ReadFile(staticFiles, filepath.Join("react", "p", "placeholder", "index.html"))
 	if err != nil {
-		index, err = fs.ReadFile(staticFiles, "default/index.html")
-	}
+		// Fallback to old HTML files
+		index, err := fs.ReadFile(staticFiles, filepath.Join(playground.AssetsDir, "/index.html"))
+		if err != nil {
+			index, err = fs.ReadFile(staticFiles, "default/index.html")
+		}
 
-	if err != nil {
-		w.WriteHeader(http.StatusFound)
+		if err != nil {
+			w.WriteHeader(http.StatusFound)
+			return
+		}
+		w.Write(index)
 		return
-
 	}
-	w.Write(index)
+	w.Write(reactIndex)
 }
 
 func Landing(rw http.ResponseWriter, req *http.Request) {
